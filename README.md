@@ -17,7 +17,7 @@ It uses **DynamoDB’s single-table design** for optimized performance and scala
 
 ---
 
-## 🎯 2. Project Objectives
+##  2. Project Objectives
 
 - Design a scalable, single-table DynamoDB schema for a social networking app.  
 - Model entities and relationships efficiently.  
@@ -84,11 +84,100 @@ This composite key design enables efficient data access across all entities in a
 
  <img width="959" height="234" alt="image" src="https://github.com/user-attachments/assets/beee9ef5-5183-43ee-8d5e-9432532c6596" />
 
+ Install Python and dependencies:
+
+      sudo yum install python3 -y
+      pip3 install boto3
+
+## 7. Step 2: Download supporting code
+
+     cd ~/environment
+      curl -o quick-photos.tar https://s3.amazonaws.com/ddb-labs/quick-photos.tar
+      tar -xvf quick-photos.tar
+
+<img width="690" height="395" alt="image" src="https://github.com/user-attachments/assets/969f625f-106d-4453-a86c-5d4824e1e916" />
+
+Run the ls command ls
+ 
+ ● There should be two directories now, application and scripts
+
+ <img width="623" height="73" alt="image" src="https://github.com/user-attachments/assets/146d93bb-4826-43e5-9d77-e0ba4a686fae" />
+
+ Set permissions:
+
+      chmod +x ~/environment/scripts/*.py
+
+## Create the DynamoDB Table
+
+      # scripts/create_table.py
+      import boto3
+      
+      dynamodb = boto3.client('dynamodb')
+      
+      try:
+          dynamodb.create_table(
+              TableName='quick-photos',
+              AttributeDefinitions=[
+                  {"AttributeName": "PK", "AttributeType": "S"},
+                  {"AttributeName": "SK", "AttributeType": "S"}
+              ],
+              KeySchema=[
+                  {"AttributeName": "PK", "KeyType": "HASH"},
+                  {"AttributeName": "SK", "KeyType": "RANGE"}
+              ],
+              ProvisionedThroughput={
+                  "ReadCapacityUnits": 10,
+                  "WriteCapacityUnits": 10
+              }
+          )
+          print("Table created successfully.")
+      except Exception as e:
+          print("Error creating table:", e)
+
+   Run: 
+        
+         python3 scripts/create_table.py
+
+## Bulk Load Data
+
+      # scripts/bulk_load_table.py
+      import json
+      import boto3
+      
+      dynamodb = boto3.resource('dynamodb')
+      table = dynamodb.Table('quick-photos')
+      
+      items = []
+      
+      with open('scripts/items.json', 'r') as f:
+          for row in f:
+              items.append(json.loads(row))
+      
+      with table.batch_writer() as batch:
+          for item in items:
+              batch.put_item(Item=item)
+Run:
+         
+         python3 scripts/bulk_load_table.py
+         aws dynamodb scan --table-name quick-photos --select "COUNT"
 
 
+## Access Patterns
+
+| Feature                    | Operation    | Script                                  |
+| -------------------------- | ------------ | --------------------------------------- |
+| Create / Update / Get User | Read / Write | `fetch_user_and_photos.py`              |
+| Upload Photo               | Write        | `bulk_load_table.py`                    |
+| View Photos                | Read         | `fetch_user_and_photos.py`              |
+| React to Photo             | Write        | `add_reaction.py`                       |
+| View Reactions             | Read         | `fetch_photo_and_reactions.py`          |
+| Follow User                | Write        | `follow_user.py`                        |
+| View Followers             | Read         | `find_following_for_user.py`            |
+| View Followed Users        | Read         | `find_and_enrich_following_for_user.py` |
 
 
-Install Python and dependencies:
-```bash
-sudo yum install python3 -y
-pip3 install boto3
+Secondary Index and Transactions
+
+Inverted Index (GSI): Enables reverse lookups for relationships (e.g., users followed by a given user).
+
+Transactions: Used for atomic operations in add_reaction.py and follow_user.py.
