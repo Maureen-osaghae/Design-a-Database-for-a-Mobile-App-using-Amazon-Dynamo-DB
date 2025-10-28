@@ -181,3 +181,47 @@ Secondary Index and Transactions
 Inverted Index (GSI): Enables reverse lookups for relationships (e.g., users followed by a given user).
 
 Transactions: Used for atomic operations in add_reaction.py and follow_user.py.
+
+## Entity–Relationship Diagram
+**Results**
+
+Example Outputs:
+
+      User<jacksonjason -- John Perry>
+      Photo<jacksonjason -- 2019-03-30T02:28:42>
+      Reaction<kennedyheather -- PHOTO#david25#2019-03-02T09:11:30 -- +1>
+      User john42 is now following user tmartinez
+
+he project successfully:
+
+- Created and managed DynamoDB tables and indexes.
+
+- Queried and updated data using boto3.
+
+- Demonstrated transactional and batch operations.
+
+- Implemented efficient single-table design.
+
+## Cleanup
+
+Delete resources after testing:
+
+      python3 scripts/delete_table.py
+
+Delete Cloud9 environment from AWS console to prevent charges.
+
+Conclusion
+
+This project demonstrated the full lifecycle of designing, implementing, and managing a NoSQL data model for a social networking mobile application using Amazon DynamoDB.
+
+---
+## Key Takeaways
+
+- Scalable single-table design with composite keys
+- Use of secondary indexes for flexible queries
+- Transactional writes ensuring consistency
+- Practical use of partial normalization
+- This design can scale for real-world applications like Instagram-style apps or photo-sharing platforms, providing both flexibility and speed.
+
+---
+
