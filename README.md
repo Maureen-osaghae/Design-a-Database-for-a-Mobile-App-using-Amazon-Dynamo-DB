@@ -206,11 +206,36 @@ especially when we discuss the code or DynamoDB JSON wire format.
 
 Note that the one-to-one entity -- User -- doesn’t have a natural property for the RANGE value.
 Because it’s a one-to-one mapping, the access patterns will be a basic key-value lookup. Since
-your table design requires a RANGE property, you can provide a filler value for the RANGE key 
+your table design requires a RANGE property, you can provide a filler value for the RANGE key.
 
-With this in mind, let’s use the following pattern for HASH and RANGE values for each entity type:
+First, for the User entity, the HASH value will be USER#<USERNAME>. Notice that you’re
+using a prefix to identify the entity and prevent any possible collisions across entity types.
+For the RANGE value on the User entity, we’re using a static prefix of #METADATA# followed
+by the username value. For the RANGE value, it’s important that you have a value that is
+known, such as the username. This allows for single-item actions such as GetItem, PutItem,
+and DeleteItem.
+However, you also want a RANGE value with different values across different User entities to
+enable even partitioning if you use this column as a HASH key for an index. For that reason,
+you append the username to the RANGE key.
+Second, the Photo entity is a child entity of a particular User entity. The main access pattern for
+photos is to retrieve photos for a user ordered by date. Whenever you need something ordered
+by a particular property, you will need to include that property in your RANGE key to allow for
+sorting. For the Photo entity, use the same HASH key as the User entity, which will allow you to
+retrieve both a user profile and the user’s photos in a single request. For the RANGE key, use
+PHOTO#<USERNAME>#<TIMESTAMP> to uniquely identify a photo in your table.
+Third, the Reaction entity is a child entity of a particular Photo entity. There is a one-to-many
+relationship to the Photo entity and thus will use similar reasoning as with the Photo entity. In
+the next module, you will see how to retrieve a photo and all of its reactions in a single query
 
-
+using a secondary index. For now, note that the RANGE key for a Reaction entity is the same
+pattern as the RANGE key for a Photo entity. For the HASH key, we use the username of the
+user that is creating the reaction as well as the type of reaction applied. Appending the type of
+reaction allows a user to add multiple reaction types to a single photo.
+Finally, the Friendship entity uses the same HASH key as the User entity. This will allow you to
+fetch both the metadata for a user plus all of the user’s followers in a single query. The RANGE
+key for a Friendship entity is #FRIEND#<FRIEND_USERNAME>. In Step 4 below, you will learn
+why to prepend the Friendship entity’s RANGE key with a “#”.
+In the next step, we create a table with this primary key design 
 
 
 ## Create the DynamoDB Table
@@ -244,6 +269,13 @@ With this in mind, let’s use the following pattern for HASH and RANGE values f
         
          python3 scripts/create_table.py
 
+<img width="530" height="81" alt="image" src="https://github.com/user-attachments/assets/800bc614-3d97-4032-a562-03d29c7c6698" />
+
+check Dynamodb console to verify the table was created
+
+<img width="959" height="239" alt="image" src="https://github.com/user-attachments/assets/69923421-6969-43dc-b820-e64f5a192d29" />
+
+
 ## Bulk Load Data
 
       # scripts/bulk_load_table.py
@@ -262,13 +294,23 @@ With this in mind, let’s use the following pattern for HASH and RANGE values f
       with table.batch_writer() as batch:
           for item in items:
               batch.put_item(Item=item)
+
 Run:
          
          python3 scripts/bulk_load_table.py
+
+To check if the DynamoDB table was loaded with items and get count, Run this command in your terminal: 
+         
          aws dynamodb scan --table-name quick-photos --select "COUNT"
 
+<img width="581" height="155" alt="image" src="https://github.com/user-attachments/assets/c2fecf19-74ef-4f9f-9612-be584c98599d" />
 
-## Access Patterns
+
+
+## Retrieve multiple entity types in a single request. The following code composes the fetch_user_and_photos.py script
+
+Run:
+○ python3 application/fetch_user_and_photos.py 
 
 | Feature                    | Operation    | Script                                  |
 | -------------------------- | ------------ | --------------------------------------- |
