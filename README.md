@@ -107,6 +107,112 @@ Run the ls command ls
 
       chmod +x ~/environment/scripts/*.py
 
+
+The first step of any data modeling exercise is to build a diagram to show the entities in your
+application and how they relate to each other.
+
+In our application, we have the following entities:
+● User
+● Photo
+● Reaction
+● Friendship
+
+A User can have many Photos, and a Photo can have many Reactions. Finally, the Friendship
+entity represents a many-to-many relationship between Users, as a User can follow multiple
+Users and be followed by multiple other Users.
+With these entities and relationships in mind, our entity-relationship diagram is shown below.
+
+<img width="512" height="296" alt="image" src="https://github.com/user-attachments/assets/f85661bd-8df3-4c56-b4f7-bc8199bb393b" />
+
+Consider user profile access patterns
+Now that we have our entity-relationship diagram, consider the access patterns around our
+entities. Let’s start with users.
+
+The users of our mobile application will need to create user profiles. These profiles will include
+information such as a username, profile picture, location, current status, and interests for a
+given user.
+Users will be able to browse the profile of other users. A user may want to browse the profile of
+another user to see if the user is interesting to follow or simply to read some background on an
+existing friend 
+
+Over time, a user will want to update their profile to display a new status or to update their
+interests as they change.
+Based on this information, we have three access patterns:
+- Create user profile (Write)
+- Update user profile (Write)
+-  Get user profile (Read)
+
+ ## Consider photo access patterns
+
+Now, let’s look at the access patterns around photos.
+Our mobile application allows users to upload and share photos with their friends, similar to
+Instagram or Snapchat. When users upload a photo, you will need to store information such as
+the time the photo was uploaded and the location of the file on your content delivery network
+(CDN).
+When users aren’t uploading photos, they will want to browse photos of their friends. If they visit
+a friend’s profile, they should see the photos for a user with the most recent photos showing
+first. If they really like a photo, they can ‘react’ to the photo using one of four predefined
+reactions -- a heart, a smiley face, a thumbs up, or a pair of sunglasses. Viewing a photo should
+display the current reactions for the photo.
+In this section, we have the following access patterns:
+- Upload photo for user (Write)
+- View recent photos for user (Read)
+- React to a photo (Write)
+- View photo and reactions (Read)
+
+  ## Friendship access patterns
+Finally, let’s consider the access patterns around friendship.
+Many popular mobile applications have a social network aspect. 
+
+You can follow friends, view updates on your friends’ activities, and receive recommendations on other friends you may want to follow.
+In your application, a friendship is a one-way relationship, like Twitter. One user can choose to
+follow another user, and that user may choose to follow the user back. For our application, we
+will call the users that follow a user “followers”, and we will call the users that a user is following
+the “followed”.
+Based on this information, we have the following access patterns:
+- Follow user (Write)
+- View followers for user (Read)
+- View followed for user (Read)
+
+ ## Design the primary key
+Let’s consider the different entities, as suggested in the preceding introduction. In the mobile
+application, we have the following entities:
+● Users
+● Photos
+● Reactions
+● Friendship
+
+These entities show three different kinds of data relationships.
+First, each user on your application will have a single user profile represented by a User entity in
+your table.
+Next, a user will have multiple photos represented in your application, and a photo will have
+Multiple reactions. These are both one-to-many relationships.
+Finally, the Friendship entity is a representation of a many-to-many relationship. The Friendship
+entity represents when one user is following another user in your application. 
+
+It is a many-to-many relationship as one user may follow multiple other users, and a user may have multiple followers.
+Having a many-to-many mapping is usually an indication that you will want to satisfy two Query
+patterns, and our application is no exception. On the Friendship entity, we have an access
+pattern that needs to find all users that follow a particular user as well as an access pattern to
+find all of the users that a given user follows.
+
+Because of this, we’ll use a composite primary key with both a HASH and RANGE value. The
+composite primary key will give us the Query ability on the HASH key to satisfy one of the query
+patterns we need. 
+
+In the DynamoDB API specification, the partition key is called HASH and the
+sort key is called RANGE, and in this guide we will use the API terminology interchangeably and
+especially when we discuss the code or DynamoDB JSON wire format.
+
+Note that the one-to-one entity -- User -- doesn’t have a natural property for the RANGE value.
+Because it’s a one-to-one mapping, the access patterns will be a basic key-value lookup. Since
+your table design requires a RANGE property, you can provide a filler value for the RANGE key 
+
+With this in mind, let’s use the following pattern for HASH and RANGE values for each entity type:
+
+
+
+
 ## Create the DynamoDB Table
 
       # scripts/create_table.py
