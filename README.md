@@ -309,38 +309,533 @@ To check if the DynamoDB table was loaded with items and get count, Run this com
 
 ## Retrieve multiple entity types in a single request. The following code composes the fetch_user_and_photos.py script
 
+      import boto3
+      
+      from entities import User, Photo
+      
+      dynamodb = boto3.client('dynamodb')
+      
+      USER = "jacksonjason"
+      
+      
+      def fetch_user_and_photos(username):
+          resp = dynamodb.query(
+              TableName='quick-photos',
+              KeyConditionExpression="PK = :pk AND SK BETWEEN :metadata AND :photos",
+              ExpressionAttributeValues={
+                  ":pk": { "S": "USER#{}".format(username) },
+                  ":metadata": { "S": "#METADATA#{}".format(username) },
+                  ":photos": { "S": "PHOTO$" },
+              },
+              ScanIndexForward=True
+          )
+      
+          user = User(resp['Items'][0])
+          user.photos = [Photo(item) for item in resp['Items'][1:]]
+      
+          return user
+      
+      
+      user = fetch_user_and_photos(USER)
+      
+      print(user)
+      for photo in user.photos:
+          print(photo)
+
+
 Run:
-○ python3 application/fetch_user_and_photos.py 
-
-| Feature                    | Operation    | Script                                  |
-| -------------------------- | ------------ | --------------------------------------- |
-| Create / Update / Get User | Read / Write | `fetch_user_and_photos.py`              |
-| Upload Photo               | Write        | `bulk_load_table.py`                    |
-| View Photos                | Read         | `fetch_user_and_photos.py`              |
-| React to Photo             | Write        | `add_reaction.py`                       |
-| View Reactions             | Read         | `fetch_photo_and_reactions.py`          |
-| Follow User                | Write        | `follow_user.py`                        |
-| View Followers             | Read         | `find_following_for_user.py`            |
-| View Followed Users        | Read         | `find_and_enrich_following_for_user.py` |
+         
+         python3 application/fetch_user_and_photos.py 
 
 
-Secondary Index and Transactions
+<img width="643" height="407" alt="image" src="https://github.com/user-attachments/assets/8b7c70e8-535a-439c-88bb-373e5fe6b0a4" />
 
+
+ ## Create a secondary index
+Creating a secondary index is similar to creating a table. Open the  add_inverted_index.py.
 Inverted Index (GSI): Enables reverse lookups for relationships (e.g., users followed by a given user).
 
-Transactions: Used for atomic operations in add_reaction.py and follow_user.py.
+The contents of that file are shown below.
+     
+      import boto3
+      
+      dynamodb = boto3.client('dynamodb')
+      
+      try:
+          dynamodb.update_table(
+              TableName='quick-photos',
+              AttributeDefinitions=[
+                  {
+                      "AttributeName": "PK",
+                      "AttributeType": "S"
+                  },
+                  {
+                      "AttributeName": "SK",
+                      "AttributeType": "S"
+                  }
+              ],
+              GlobalSecondaryIndexUpdates=[
+                  {
+                      "Create": {
+                          "IndexName": "InvertedIndex",
+                          "KeySchema": [
+                              {
+                                  "AttributeName": "SK",
+                                  "KeyType": "HASH"
+                              },
+                              {
+                                  "AttributeName": "PK",
+                                  "KeyType": "RANGE"
+                              }
+                          ],
+                          "Projection": {
+                              "ProjectionType": "ALL"
+                          },
+                          "ProvisionedThroughput": {
+                              "ReadCapacityUnits": 10,
+                              "WriteCapacityUnits": 10 
+                          }
+                      }
+                  }
+              ],
+          )
+          print("Table updated successfully.")
+      except Exception as e:
+          print("Could not update table. Error:")
+          print(e)
 
-## Entity–Relationship Diagram
-**Results**
 
-Example Outputs:
+Whenever attributes are used in a primary key for the table or secondary index, they
+must be defined in AttributeDefinitions. Then, we Create a new secondary index in the
+GlobalSecondaryIndexUpdates property. For this secondary index, we specify the index
+name, the schema of the primary key, the provisioned throughput, and the attributes we
+want to project.
+Note that an inverted index is a name of a design pattern rather than an official property
+in DynamoDB. Creating an inverted index is just like creating any other secondary
+index. 
 
-      User<jacksonjason -- John Perry>
-      Photo<jacksonjason -- 2019-03-30T02:28:42>
-      Reaction<kennedyheather -- PHOTO#david25#2019-03-02T09:11:30 -- +1>
-      User john42 is now following user tmartinez
+Create your inverted index by running the command below.
 
-he project successfully:
+      cd /home/ec2-user/environment/scripts
+      python3 add_inverted_index.py
+
+
+<img width="769" height="101" alt="image" src="https://github.com/user-attachments/assets/7affff57-8f0c-4350-9d49-65e30c8fa62d" />
+
+<img width="959" height="289" alt="image" src="https://github.com/user-attachments/assets/e58e838b-75bc-4887-9352-ffcad739d284" />
+
+
+## Query the inverted index to find a photo’s reactions 
+
+Open the file: fetch_photo_and_reactions.py. The contents of this script are shown below.
+      
+      import boto3
+      
+      from entities import Photo, Reaction
+      
+      dynamodb = boto3.client('dynamodb')
+      
+      USER = "david25"
+      TIMESTAMP = '2019-03-02T09:11:30'
+      
+      
+      def fetch_photo_and_reactions(username, timestamp):
+          try:
+              resp = dynamodb.query(
+                  TableName='quick-photos',
+                  IndexName='InvertedIndex',
+                  KeyConditionExpression="SK = :sk AND PK BETWEEN :reactions AND :user",
+                  ExpressionAttributeValues={
+                      ":sk": { "S": "PHOTO#{}#{}".format(username, timestamp) },
+                      ":user": { "S": "USER$" },
+                      ":reactions": { "S": "REACTION#" },
+                  },
+                  ScanIndexForward=True
+              )
+          except Exception as e:
+              print("Index is still backfilling. Please try again in a moment.")
+              return False
+      
+          items = resp['Items']
+          items.reverse()
+      
+          photo = Photo(items[0])
+          photo.reactions = [Reaction(item) for item in items[1:]]
+      
+          return photo
+      
+      
+      photo = fetch_photo_and_reactions(USER, TIMESTAMP)
+      
+      if photo:
+          print(photo)
+          for reaction in photo.reactions:
+              print(reaction)
+
+
+The fetch_photo_and_reactions function is similar to a function you would have
+in your application. The function accepts a username and timestamp and makes
+a query against the InvertedIndex to find the photo and reactions for the photo.
+Then it assembles the returned items into a Photo entity and multiple Reaction
+entities that can be used in your application.
+
+-  Run this command
+
+        python3 fetch_photo_and_reactions.py
+
+  Output:
+  <img width="671" height="336" alt="image" src="https://github.com/user-attachments/assets/b68f79df-9143-431a-9e18-f3e8df3f7b5f" />
+
+
+Find followed users
+- In the previous step, you saw how to use an inverted index to fetch a one-to-
+many relationship for an entity that was itself the subject of a one-to-many
+relationship. In this step, you will use the inverted index to fetch the “other” side
+of a many-to-many relationship.
+-  The primary key in the table is allows you to find all of the followers of a particular user, but it won’t let you find all the users that someone is following. With the inverted index, it’s flipped -- you can find all the users followed by a particular
+user.
+  Open the file:
+
+         find_following_for_user.py. The contents of this script follows.
+
+---
+      import boto3
+      
+      from entities import Friendship
+      
+      dynamodb = boto3.client('dynamodb')
+      
+      USERNAME = "haroldwatkins"
+      
+      
+      def find_following_for_user(username):
+          resp = dynamodb.query(
+              TableName='quick-photos',
+              IndexName='InvertedIndex',
+              KeyConditionExpression="SK = :sk",
+              ExpressionAttributeValues={
+                  ":sk": { "S": "#FRIEND#{}".format(username) }
+              },
+              ScanIndexForward=True
+          )
+      
+          return [Friendship(item) for item in resp['Items']]
+      
+      
+      
+      follows = find_following_for_user(USERNAME)
+      
+      print("Users followed by {}:".format(USERNAME))
+      for follow in follows:
+          print(follow)
+      
+---
+
+
+Run the script by running the following command in your terminal.
+      
+      python3 find_following_for_user.py
+
+Output:
+<img width="769" height="158" alt="image" src="https://github.com/user-attachments/assets/ba2be4bb-fc4e-4c7e-8a3d-54327cbc391c" />
+
+## Use partial normalization to find followed users
+-Open the file: 
+      
+      find_and_enrich_following_for_user.py. 
+      
+The contents of this script are shown below 
+
+      import boto3
+      
+      from entities import User
+      
+      dynamodb = boto3.client("dynamodb")
+      
+      USERNAME = "haroldwatkins"
+      
+      
+      def find_and_enrich_following_for_user(username):
+          friend_value = "#FRIEND#{}".format(username)
+          resp = dynamodb.query(
+              TableName="quick-photos",
+              IndexName="InvertedIndex",
+              KeyConditionExpression="SK = :sk",
+              ExpressionAttributeValues={":sk": {"S": friend_value}},
+              ScanIndexForward=True,
+          )
+      
+          keys = [
+              {
+                  "PK": {"S": "USER#{}".format(item["followedUser"]["S"])},
+                  "SK": {"S": "#METADATA#{}".format(item["followedUser"]["S"])},
+              }
+              for item in resp["Items"]
+          ]
+      
+          friends = dynamodb.batch_get_item(RequestItems={"quick-photos": {"Keys": keys}})
+      
+          enriched_friends = [User(item) for item in friends["Responses"]["quick-photos"]]
+      
+          return enriched_friends
+      
+      
+      follows = find_and_enrich_following_for_user(USERNAME)
+      
+      print("Users followed by {}:".format(USERNAME))
+      for follow in follows:
+          print(follow)
+
+
+The find_and_enrich_following_for_user function is similar to the
+find_follower_for_user function you used in the last module. The function accepts
+a username for whom you want to find the followed users. The function first
+makes a Query request using the inverted index to find all of the users that the
+given username is following. It then assembles a BatchGetItem to fetch the full
+User entity for each of the followed users and returns those entities.
+
+-  This results in two requests to DynamoDB, rather than the ideal of one. However,
+it’s satisfying a fairly complex access pattern, and it avoids the need to constantly
+update Friendship entities every time a user profile is updated. This partial
+normalization can be a great tool for your modeling needs.
+-  Execute the script by running the following command in your terminal.
+
+         ○ python3 find_and_enrich_following_for_user.py
+Output:
+<img width="901" height="377" alt="image" src="https://github.com/user-attachments/assets/13f065dc-d306-449e-99de-86ac2c35eabd" />
+
+## React to a photo
+
+-  When adding a user’s reaction to a photo, we need to do a few things:
+-  Confirm that the user has not already used this reaction type on this photo
+-  Create a new Reaction entity to store the reaction
+-  Increment the proper reaction type in the reactions property on the Photo
+entity so that we can display the reaction details on a photo
+
+-  In the code you downloaded, there is a script in the application/ directory called
+add_reaction.py that includes a function for adding a reaction to a photo. The
+function in that file uses a DynamoDB transaction to add a reaction.
+- The contents of the file are as follows:
+      
+      import datetime
+
+      import boto3
+      
+      dynamodb = boto3.client("dynamodb")
+      
+      REACTING_USER = "kennedyheather"
+      REACTION_TYPE = "sunglasses"
+      PHOTO_USER = "ppierce"
+      PHOTO_TIMESTAMP = "2019-04-14T08:09:34"
+      
+      
+      def add_reaction_to_photo(reacting_user, reaction_type, photo_user, photo_timestamp):
+          reaction = "REACTION#{}#{}".format(reacting_user, reaction_type)
+          photo = "PHOTO#{}#{}".format(photo_user, photo_timestamp)
+          user = "USER#{}".format(photo_user)
+          try:
+              resp = dynamodb.transact_write_items(
+                  TransactItems=[
+                      {
+                          "Put": {
+                              "TableName": "quick-photos",
+                              "Item": {
+                                  "PK": {"S": reaction},
+                                  "SK": {"S": photo},
+                                  "reactingUser": {"S": reacting_user},
+                                  "reactionType": {"S": reaction_type},
+                                  "photo": {"S": photo},
+                                  "timestamp": {"S": datetime.datetime.now().isoformat()},
+                              },
+                              "ConditionExpression": "attribute_not_exists(SK)",
+                              "ReturnValuesOnConditionCheckFailure": "ALL_OLD",
+                          }
+                      },
+                      {
+                          "Update": {
+                              "TableName": "quick-photos",
+                              "Key": {"PK": {"S": user}, "SK": {"S": photo}},
+                              "UpdateExpression": "SET reactions.#t = reactions.#t + :i",
+                              "ExpressionAttributeNames": {"#t": reaction_type},
+                              "ExpressionAttributeValues": {":i": {"N": "1"}},
+                              "ReturnValuesOnConditionCheckFailure": "ALL_OLD",
+                          }
+                      },
+                  ]
+              )
+              print("Added {} reaction from {}".format(reaction_type, reacting_user))
+              return True
+          except Exception as e:
+              print("Could not add reaction to photo")
+      
+      
+      add_reaction_to_photo(REACTING_USER, REACTION_TYPE, PHOTO_USER, PHOTO_TIMESTAMP)
+
+
+In the add_reaction_to_photo function, we’re using the transact_write_items()
+method to perform a write transaction. Our transaction has two operations.
+
+- First, we’re doing a Put operation to insert a new Reaction entity. As part of that
+operation, we’re specifying a condition that the SK attribute should not exist for
+this item. This is a way to ensure that an item with this PK and SK doesn’t
+already exist. If it did, that would mean the user has already added this reaction
+to this photo.
+
+-  The second operation is an Update operation on the User entity to increment the
+reaction type in the reactions attribute map. 
+
+DynamoDB’s powerful update expressions allow you to perform atomic increments without needing to first retrieve the item and then update it.
+- Run this script with the following command in your terminal.
+
+      python3 add_reaction.py
+  
+- The output in your terminal should indicate that the reaction was added to the
+photo.
+-  Added sunglasses reaction from kennedyheather
+
+<img width="561" height="293" alt="image" src="https://github.com/user-attachments/assets/a7eb441a-76b9-4df1-9db3-0ddf62a805a5" />
+
+## Following a user
+ In your application, one user can follow another user. When the application
+backend gets a request to follow a user, we need to do four things:
+
+- Check that the following user is not already following the requested user
+- Create a Friendship entity to record the following relationship
+- Increment the follower count for the user being followed
+-  Increment the following count for the user following
+-  Open the file:
+
+         follow_user.py. 
+
+The contents of the file are as follows:
+
+      import datetime
+      
+      import boto3
+      
+      dynamodb = boto3.client('dynamodb')
+      
+      FOLLOWED_USER = 'tmartinez'
+      FOLLOWING_USER = 'john42'
+      
+      
+      def follow_user(followed_user, following_user):
+          user = "USER#{}".format(followed_user)
+          friend = "#FRIEND#{}".format(following_user)
+          user_metadata = "#METADATA#{}".format(followed_user)
+          friend_user = "USER#{}".format(following_user)
+          friend_metadata = "#METADATA#{}".format(following_user)
+          try:
+              resp = dynamodb.transact_write_items(
+                  TransactItems=[
+                      {
+                          "Put": {
+                              "TableName": "quick-photos",
+                              "Item": {
+                                  "PK": {"S": user},
+                                  "SK": {"S": friend},
+                                  "followedUser": {"S": followed_user},
+                                  "followingUser": {"S": following_user},
+                                  "timestamp": {"S": datetime.datetime.now().isoformat()},
+                              },
+                              "ConditionExpression": "attribute_not_exists(SK)",
+                              "ReturnValuesOnConditionCheckFailure": "ALL_OLD",
+                          }
+                      },
+                      {
+                          "Update": {
+                              "TableName": "quick-photos",
+                              "Key": {"PK": {"S": user}, "SK": {"S": user_metadata}},
+                              "UpdateExpression": "SET followers = followers + :i",
+                              "ExpressionAttributeValues": {":i": {"N": "1"}},
+                              "ReturnValuesOnConditionCheckFailure": "ALL_OLD",
+                          }
+                      },
+                      {
+                          "Update": {
+                              "TableName": "quick-photos",
+                              "Key": {"PK": {"S": friend_user}, "SK": {"S": friend_metadata}},
+                              "UpdateExpression": "SET following = following + :i",
+                              "ExpressionAttributeValues": {":i": {"N": "1"}},
+                              "ReturnValuesOnConditionCheckFailure": "ALL_OLD",
+                          }
+                      },
+                  ]
+              )
+              print("User {} is now following user {}".format(following_user, followed_user))
+              return True
+          except Exception as e:
+              print(e)
+              print("Could not add follow relationship")
+      
+      follow_user(FOLLOWED_USER, FOLLOWING_USER)
+
+
+ The follow_user function in the file is similar to a function you would have in your
+application. It takes two usernames -- one of the followed user and one of the
+following user -- and it runs a request to create a Friendship entity and update
+the two User entities.
+- Run the script in your terminal with the following command.
+
+      python3 follow_user.py
+
+-  You should see output in your terminal indicating that the operation succeeded.
+-  User john42 is now following user tmartinez
+
+  <img width="557" height="305" alt="image" src="https://github.com/user-attachments/assets/78607a2c-3952-41a2-a5ae-a236a10b7cf3" />
+
+
+  ## In the previous sections, we’ve satisfied the following access patterns in our
+application:
+- Create user profile (Write)
+- Update user profile (Write)
+- Get user profile (Read)
+- Upload photo (Write)
+- View recent photos for user (Read)
+- React to a photo (Write)
+- View photo and reactions (Read)
+- Follow user (Write)
+- View followers for user (Read)
+- View followed for user (Read)
+
+## The strategies we used to satisfy these patterns included:
+- A single-table design that combined multiple entity types in one table.
+- A composite primary key that allow for many-to-many relationships.
+- An inverted index to allow reverse lookups on our many-to-many entity.
+- Partial normalization to keep our data fresh while remaining performant.\
+- DynamoDB transactions to handle complex write patterns across multiple
+items.
+
+ ## Clean Up
+ Delete the DynamoDB table: As part of the cleanup process, you need to delete the DynamoDB table you
+used for this lab.
+In the code you downloaded, there is a file in the scripts/ directory called
+delete_table.py. The contents of that file are as follows.
+
+       import boto3
+       dynamodb = boto3.client('dynamodb')
+      try:
+      dynamodb.delete_table(TableName='quick-photos')
+      print("Table deleted successfully.")
+          except Exception as e:
+             print("Could not delete table. Please try again in a moment. Error:")
+      print(e)
+
+Run:
+   
+    python3 delete_table.py
+
+<img width="627" height="82" alt="image" src="https://github.com/user-attachments/assets/a683a91a-8fa8-4905-b987-00ec3e0c9a00" />
+
+ ## Delete the AWS Cloud9 environment
+- Navigate to the AWS Cloud9 console
+- Choose the DynamoDB Quick Photos environment and choose Delete
+- In the dialog box, type Delete in the box and choose Delete
+
+Congratulations, you completed this project
+
+
+The project successfully:
 
 - Created and managed DynamoDB tables and indexes.
 
@@ -350,15 +845,7 @@ he project successfully:
 
 - Implemented efficient single-table design.
 
-## Cleanup
-
-Delete resources after testing:
-
-      python3 scripts/delete_table.py
-
-Delete Cloud9 environment from AWS console to prevent charges.
-
-Conclusion
+## Conclusion
 
 This project demonstrated the full lifecycle of designing, implementing, and managing a NoSQL data model for a social networking mobile application using Amazon DynamoDB.
 
